@@ -55,7 +55,7 @@ if __name__ == "__main__":
     diff = [(v, t.strip()) for v, t in opts if v and v != t.strip()]
     print("Optionen:", len(opts), "davon mit abweichendem Wert:", len(diff), diff[:8])
     print("Frankfurter:", [(v, t.strip()) for v, t in opts if "Frankfurter" in t])
-    for st, hn in [("Frankfurter Landstraße", 1)]:
+    for st, hn in [("Frankfurter Landstraße 87-153", 0)]:
         print("Strasse:", st)
         try:
             run(st, hn)

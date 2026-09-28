@@ -107,7 +107,8 @@ input:disabled{background:#EEE;color:#888}
 <div class="chosen" id="mChosen"><span></span><button type="button">ändern</button></div>
 <div class="hint" id="mHint">Optional. Das Gerät holt die Abfuhrtermine danach selbst, alle 4 Wochen.</div>
 <label for="mHnr">Hausnummer</label>
-<input id="mHnr" autocomplete="off" inputmode="numeric" placeholder="nur nötig bei mehreren Abfuhrbezirken">
+<input id="mHnr" autocomplete="off" inputmode="numeric" placeholder="meist nicht nötig">
+<div class="hint">Lange Straßen stehen mit Hausnummernbereich in der Liste, z.&nbsp;B. „Frankfurter Landstraße 87-153“. Wähle den Bereich, in dem deine Hausnummer liegt.</div>
 <label>Welche Tonnen anzeigen?</label>
 <div class="bins">
 <label><input type="checkbox" id="mb0" checked><i style="background:#3C3C3A"></i>Restmüll</label>
@@ -115,6 +116,9 @@ input:disabled{background:#EEE;color:#888}
 <label><input type="checkbox" id="mb2" checked><i style="background:#2F5FA8"></i>Papier</label>
 <label><input type="checkbox" id="mb3" checked><i style="background:#E0B000"></i>Gelbe Tonne</label>
 </div>
+<label for="mRest">Restmüll-Leerung</label>
+<select id="mRest"><option value="1">wöchentlich</option><option value="2" selected>alle 2 Wochen</option><option value="4">alle 4 Wochen</option></select>
+<div class="hint">Steht auf deinem Gebührenbescheid bzw. im Abfuhrkalender des EAD.</div>
 </section>
 
 <button id="save" type="button">Speichern und starten</button>
@@ -206,6 +210,7 @@ fetch("/config").then(function(r){return r.json()}).then(function(c){
   if(c.lines)$("lines").value=c.lines;
   if(c.walk)setWalk(+c.walk);
   if(c.hnr)$("mHnr").value=c.hnr;
+  if(c.rest)$("mRest").value=String(c.rest);
   if(c.bins!==undefined)for(var i=0;i<4;i++)$("mb"+i).checked=!!(c.bins&(1<<i));
 }).catch(function(){}).then(function(){
   loadScan(false);
@@ -235,7 +240,7 @@ $("save").onclick=function(){
   var bins=0;for(var i=0;i<4;i++)if($("mb"+i).checked)bins|=1<<i;
   if(st&&!bins)return msg("Bitte mindestens eine Tonne auswählen.","err");
   f.append("street",mSel?mSel.n:st);f.append("streetVal",mSel?mSel.v:st);
-  f.append("hnr",$("mHnr").value.replace(/[^0-9a-zA-Z]/g,""));f.append("bins",bins||15);
+  f.append("hnr",$("mHnr").value.replace(/[^0-9a-zA-Z]/g,""));f.append("bins",bins||15);f.append("rest",$("mRest").value);
   msg("Speichere …");
   fetch("/save",{method:"POST",body:f}).then(function(r){return r.text()}).then(function(t){
     if(t=="OK"){msg("Gespeichert. Das Display startet jetzt neu, du kannst dieses WLAN verlassen.","ok");$("save").disabled=true}

@@ -82,6 +82,7 @@ struct Config {
   float lat = 0, lon = 0;
   String street, streetVal, hnr;   // Muellkalender
   uint8_t bins = 15;     // Bit 0 Rest, 1 Bio, 2 Papier, 3 Gelb
+  uint8_t rest = 2;      // Restmuell-Leerung: 1 = woechentlich, 2 = alle 2, 4 = alle 4 Wochen
 } C;
 
 static const int MAX_LINES = 8;
@@ -120,6 +121,7 @@ static void loadConfig() {
   C.streetVal = prefs.getString("streetVal", "");
   C.hnr = prefs.getString("hnr", "");
   C.bins = prefs.getUChar("bins", 15);
+  C.rest = prefs.getUChar("rest", 2);
   prefs.end();
   parseLines();
 }
@@ -709,7 +711,7 @@ static void updateHolidays() {
 }
 
 // ---------- Muellkalender (EAD ueber Muellmax) -----------------
-struct Pickup { uint32_t ymd; uint8_t type; };   // type 0 Rest, 1 Bio, 2 Papier, 3 Gelb
+struct Pickup { uint32_t ymd; uint8_t type; uint8_t rh; };   // type 0 Rest, 1 Bio, 2 Papier, 3 Gelb; rh = Rhythmus Rest (0 = unbekannt)
 static const int MAX_PICKUPS = 160;
 Pickup pickups[MAX_PICKUPS];
 int pickupCount = 0;
@@ -869,27 +871,30 @@ static bool mmFetch(String& err) {
   // iCal lesen: DTSTART + SUMMARY je Termin
   Pickup tmp[MAX_PICKUPS]; int n = 0;
   long today = todayNum();
-  uint32_t ymd = 0; int type = -1;
+  uint32_t ymd = 0; int type = -1; uint8_t rh = 0;
   int ls = 0;
   while (ls < (int)html.length()) {
     int le = html.indexOf('\n', ls);
     if (le < 0) le = html.length();
     String l = html.substring(ls, le); l.trim();
     ls = le + 1;
-    if (l.startsWith("BEGIN:VEVENT")) { ymd = 0; type = -1; }
+    if (l.startsWith("BEGIN:VEVENT")) { ymd = 0; type = -1; rh = 0; }
     else if (l.startsWith("DTSTART")) {
       int c = l.indexOf(':');
       if (c > 0) { String v = l.substring(c + 1); ymd = parseYmd(v.c_str()); }
     }
     else if (l.startsWith("SUMMARY")) {
       String s = l.substring(l.indexOf(':') + 1); s.toLowerCase();
-      if (s.indexOf("rest") >= 0) type = 0;
+      if (s.indexOf("rest") >= 0) {
+        type = 0;
+        rh = s.indexOf("4-w") >= 0 ? 4 : s.indexOf("2-w") >= 0 ? 2 : s.indexOf("chentl") >= 0 ? 1 : 0;
+      }
       else if (s.indexOf("bio") >= 0) type = 1;
       else if (s.indexOf("papier") >= 0 || s.indexOf("pappe") >= 0 || s.indexOf("ppk") >= 0) type = 2;
       else if (s.indexOf("gelb") >= 0 || s.indexOf("wertstoff") >= 0 || s.indexOf("verpackung") >= 0 || s.indexOf("lvp") >= 0) type = 3;
     }
     else if (l.startsWith("END:VEVENT")) {
-      if (ymd && type >= 0 && ymdToDay(ymd) >= today - 1 && n < MAX_PICKUPS) { tmp[n].ymd = ymd; tmp[n].type = (uint8_t)type; n++; }
+      if (ymd && type >= 0 && ymdToDay(ymd) >= today - 1 && n < MAX_PICKUPS) { tmp[n].ymd = ymd; tmp[n].type = (uint8_t)type; tmp[n].rh = rh; n++; }
     }
   }
   if (!n) { err = "keine Termine gefunden"; return false; }
@@ -942,6 +947,8 @@ static int nextPickups(Pickup* out, int maxN) {
   long today = todayNum(); int n = 0;
   for (int i = 0; i < pickupCount && n < maxN; i++) {
     if (!(C.bins & (1 << pickups[i].type))) continue;
+    if (pickups[i].type == 0 && pickups[i].rh && pickups[i].rh != C.rest) continue;
+    if (n && out[n - 1].ymd == pickups[i].ymd && out[n - 1].type == pickups[i].type) continue;
     if (ymdToDay(pickups[i].ymd) < today) continue;
     out[n++] = pickups[i];
   }
@@ -1781,6 +1788,7 @@ static void drawPortalScreen(bool canCancel) {
     j += "\"streetVal\":\"" + jsonEsc(C.streetVal) + "\",";
     j += "\"hnr\":\"" + jsonEsc(C.hnr) + "\",";
     j += "\"bins\":" + String(C.bins) + ",";
+    j += "\"rest\":" + String(C.rest) + ",";
     j += "\"walk\":" + String(C.walk) + "}";
     web->send(200, "application/json", j);
   });
@@ -1810,6 +1818,8 @@ static void drawPortalScreen(bool canCancel) {
     prefs.putString("hnr", hnr);
     int b = web->arg("bins").toInt();
     prefs.putUChar("bins", (uint8_t)(b >= 1 && b <= 15 ? b : 15));
+    int rr = web->arg("rest").toInt();
+    prefs.putUChar("rest", (uint8_t)(rr == 1 || rr == 4 ? rr : 2));
     int w = web->arg("walk").toInt();
     if (w >= 1 && w <= 45) prefs.putUChar("walk", (uint8_t)w);
     prefs.end();
