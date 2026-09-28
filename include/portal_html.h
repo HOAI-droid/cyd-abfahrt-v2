@@ -39,6 +39,10 @@ input:disabled{background:#EEE;color:#888}
 .small{border:0;background:transparent;color:var(--sub);text-decoration:underline;font:inherit;font-size:14px;cursor:pointer;padding:6px 0}
 #save{width:100%;padding:16px;border:0;border-radius:14px;background:var(--fg);color:var(--pfg);font:inherit;font-size:18px;font-weight:700;cursor:pointer}
 #msg{margin:10px 0 0;font-weight:600;min-height:1em}
+.bins{display:flex;flex-wrap:wrap;gap:8px}
+.bins label{display:flex;align-items:center;gap:7px;margin:0;font-weight:500;background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:8px 10px;font-size:14px;cursor:pointer}
+.bins input{width:auto;margin:0}
+.bins i{width:12px;height:14px;border-radius:2px;display:inline-block}
 #msg.err{color:var(--err)} #msg.ok{color:var(--ok)}
 </style></head>
 <body><main>
@@ -95,6 +99,24 @@ input:disabled{background:#EEE;color:#888}
 <div class="step"><button type="button" id="wm" aria-label="weniger">−</button><output id="walkOut">6 min</output><button type="button" id="wp" aria-label="mehr">+</button></div>
 </section>
 
+<section>
+<h2>6 · Müllabfuhr (EAD Darmstadt)</h2>
+<label for="mStreet">Straße</label>
+<input id="mStreet" autocomplete="off" placeholder="die ersten Buchstaben eingeben">
+<div class="list" id="mStreetList"></div>
+<div class="chosen" id="mChosen"><span></span><button type="button">ändern</button></div>
+<div class="hint" id="mHint">Optional. Das Gerät holt die Abfuhrtermine danach selbst, alle 4 Wochen.</div>
+<label for="mHnr">Hausnummer</label>
+<input id="mHnr" autocomplete="off" inputmode="numeric" placeholder="nur nötig bei mehreren Abfuhrbezirken">
+<label>Welche Tonnen anzeigen?</label>
+<div class="bins">
+<label><input type="checkbox" id="mb0" checked><i style="background:#3C3C3A"></i>Restmüll</label>
+<label><input type="checkbox" id="mb1" checked><i style="background:#7A4E24"></i>Bio</label>
+<label><input type="checkbox" id="mb2" checked><i style="background:#2F5FA8"></i>Papier</label>
+<label><input type="checkbox" id="mb3" checked><i style="background:#E0B000"></i>Gelbe Tonne</label>
+</div>
+</section>
+
 <button id="save" type="button">Speichern und starten</button>
 <p id="msg"></p>
 </main>
@@ -135,6 +157,30 @@ function picker(p,onChoose){
 }
 var B=picker("b"), A=picker("a",function(s){if(!B.st.city&&!B.st.id)B.setCity(s[1])});
 
+
+var streets=[], mSel=null;
+(function(){
+  var si=$("mStreet"),sl=$("mStreetList"),ch=$("mChosen");
+  function show(h){sl.innerHTML=h;sl.style.display=h?"block":"none"}
+  function hits(q){q=norm(q);if(q.length<2)return [];var a=[],b=[];
+    streets.forEach(function(s){var n=norm(s.n);if(n.indexOf(q)==0)a.push(s);else if(n.indexOf(q)>0)b.push(s)});
+    return a.concat(b).slice(0,30)}
+  window.chooseStreet=function(s){mSel=s;ch.querySelector("span").innerHTML="✓ <b>"+esc(s.n)+"</b>";ch.style.display="flex";si.value=s.n;show("")};
+  si.addEventListener("input",function(){mSel=null;ch.style.display="none";
+    show(hits(si.value).map(function(s,i){return '<button type="button" data-i="'+streets.indexOf(s)+'">'+esc(s.n)+'</button>'}).join(""))});
+  sl.addEventListener("click",function(e){var b=e.target.closest("button");if(b)chooseStreet(streets[+b.getAttribute("data-i")])});
+  ch.querySelector("button").addEventListener("click",function(){mSel=null;ch.style.display="none";si.value="";si.focus()});
+})();
+function loadStreets(){
+  return fetch("/streets.csv").then(function(r){return r.text()}).then(function(t){
+    t.split("\n").forEach(function(l){if(!l)return;var p=l.split(";");streets.push({n:p[0],v:p[1]||p[0]})});
+    streets.sort(function(a,b){return a.n.localeCompare(b.n,"de")});
+    if(!streets.length)$("mHint").textContent="Straßenliste nicht verfügbar: Straße bitte genau wie beim EAD schreiben (z.\u00a0B. Frankfurter Landstraße).";
+    if(cfg.street){var f=null;streets.forEach(function(s){if(s.v==(cfg.streetVal||cfg.street))f=s});
+      if(f)chooseStreet(f);else $("mStreet").value=cfg.street}
+  }).catch(function(){});
+}
+
 function setWalk(v){walk=Math.max(1,Math.min(45,v));$("walkOut").textContent=walk+" min"}
 $("wm").onclick=function(){setWalk(walk-1)}; $("wp").onclick=function(){setWalk(walk+1)};
 $("noDir").onclick=function(){B.clear()};
@@ -159,6 +205,8 @@ fetch("/config").then(function(r){return r.json()}).then(function(c){
   if(c.keyTail)$("keyHint").textContent="Gespeichert (…"+c.keyTail+"). Leer lassen, um ihn zu behalten.";
   if(c.lines)$("lines").value=c.lines;
   if(c.walk)setWalk(+c.walk);
+  if(c.hnr)$("mHnr").value=c.hnr;
+  if(c.bins!==undefined)for(var i=0;i<4;i++)$("mb"+i).checked=!!(c.bins&(1<<i));
 }).catch(function(){}).then(function(){
   loadScan(false);
   return fetch("/stops.csv").then(function(r){return r.text()});
@@ -169,7 +217,7 @@ fetch("/config").then(function(r){return r.json()}).then(function(c){
   stops.sort(function(a,b){return a[3].localeCompare(b[3],"de")});
   function pre(P,id){if(!id)return;for(var i=0;i<stops.length;i++)if(stops[i][0]==id){P.choose(stops[i]);return}}
   pre(A,cfg.stop);pre(B,cfg.dir);
-}).catch(function(){msg("Haltestellenliste konnte nicht geladen werden.","err")});
+}).catch(function(){msg("Haltestellenliste konnte nicht geladen werden.","err")}).then(loadStreets);
 
 $("save").onclick=function(){
   var sel=$("ssidSel").value, ssid=sel=="__other"?$("ssid").value.trim():sel;
@@ -181,6 +229,13 @@ $("save").onclick=function(){
   f.append("stop",A.st.id);f.append("stopName",ascii(A.st.name));
   f.append("dir",B.st.id||"");f.append("dirName",B.st.id?ascii(B.st.name):"");
   f.append("lines",$("lines").value.replace(/[^0-9A-Za-z, ]/g,""));f.append("walk",walk);
+  f.append("place",ascii(A.st.city+(A.st.ort?"-"+A.st.ort:"")));
+  var st=$("mStreet").value.trim();
+  if(st&&!mSel&&streets.length)return msg("Bitte die Straße aus der Liste wählen.","err");
+  var bins=0;for(var i=0;i<4;i++)if($("mb"+i).checked)bins|=1<<i;
+  if(st&&!bins)return msg("Bitte mindestens eine Tonne auswählen.","err");
+  f.append("street",mSel?mSel.n:st);f.append("streetVal",mSel?mSel.v:st);
+  f.append("hnr",$("mHnr").value.replace(/[^0-9a-zA-Z]/g,""));f.append("bins",bins||15);
   msg("Speichere …");
   fetch("/save",{method:"POST",body:f}).then(function(r){return r.text()}).then(function(t){
     if(t=="OK"){msg("Gespeichert. Das Display startet jetzt neu, du kannst dieses WLAN verlassen.","ok");$("save").disabled=true}

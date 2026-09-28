@@ -25,6 +25,22 @@
 #define ACTIVE_FROM_H 5
 #define ACTIVE_TO_H   24
 
+// ---- Nachtmodus (invertiert + abgedunkelt), Minuten nach Mitternacht
+#define NIGHT_FROM_MIN (21 * 60 + 30)  // ab 21:30
+#define NIGHT_TO_MIN   (6 * 60 + 30)   // bis 06:30
+
+// ---- Seiten (Wischen) ----------------------------------------
+#define PAGE_TIMEOUT_S 30              // Wetter/Tagesblatt: nach 30 s zurueck zur Abfahrt
+
+// ---- Wetter + Unwetterwarnung ---------------------------------
+#define WX_INTERVAL_S  900             // alle 15 min (Open-Meteo, DWD ueber Bright Sky)
+
+// ---- Muellkalender (EAD Darmstadt ueber Muellmax) --------------
+#define MUELL_REFRESH_DAYS 28          // alle 4 Wochen neu laden
+#define MUELL_MIN_AHEAD_DAYS 21        // frueher laden, wenn die Termine bald enden
+#define MUELL_REMIND_FROM_H 17         // Tonne auf Seite 1: Vorabend ab 17:00 ...
+#define MUELL_REMIND_TO_H   9          // ... bis zum Abholtag 09:00
+
 // ---- Uhrzeit: Zeitserver + Zeitzone Deutschland (inkl. Sommer/Winterzeit)
 #define TZ_INFO  "CET-1CEST,M3.5.0,M10.5.0/3"
 #define NTP_1    "ptbtime1.ptb.de"     // Physikalisch-Technische Bundesanstalt

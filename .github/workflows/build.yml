@@ -28,7 +28,34 @@ jobs:
           key: pio-${{ hashFiles('platformio.ini') }}
 
       - name: PlatformIO installieren
-        run: pip install platformio esptool==4.8.1
+        run: pip install platformio esptool==4.8.1 requests
+
+      - name: Monat bestimmen (fuer die Strassenliste)
+        id: month
+        run: echo "month=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Strassenliste aus dem Zwischenspeicher
+        id: streets
+        uses: actions/cache/restore@v4
+        with:
+          path: include/streets_data.h
+          key: streets-ead-${{ steps.month.outputs.month }}
+
+      - name: Strassenliste EAD Darmstadt erzeugen (Muellmax)
+        id: gen
+        if: steps.streets.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: python tools/make_streets.py
+
+      - name: Strassenliste zwischenspeichern
+        if: steps.gen.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: include/streets_data.h
+          key: streets-ead-${{ steps.month.outputs.month }}
+
+      - name: Strassenliste pruefen
+        run: head -c 300 include/streets_data.h; echo; grep -o "STREETS_GZ_LEN = [0-9]*" include/streets_data.h
 
       - name: Kompilieren
         run: pio run -e cyd -e cyd2usb
