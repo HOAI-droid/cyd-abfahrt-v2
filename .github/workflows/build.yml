@@ -39,7 +39,7 @@ jobs:
           BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -1)
           for env in cyd cyd2usb; do
             B=.pio/build/$env
-            esptool.py --chip esp32 merge_bin -o out/cyd-abfahrt-$env.bin \
+            esptool.py --chip esp32 merge_bin -o out/cyd-abfahrt-v2-$env.bin \
               --flash_mode dio --flash_freq 40m --flash_size 4MB \
               0x1000 $B/bootloader.bin 0x8000 $B/partitions.bin \
               0xe000 "$BOOT_APP0" 0x10000 $B/firmware.bin
@@ -48,7 +48,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cyd-abfahrt-firmware
+          name: cyd-abfahrt-v2-firmware
           path: out/*.bin
 
       - name: Release "firmware" aktualisieren

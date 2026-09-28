@@ -1,4 +1,6 @@
-# Abfahrtsmonitor für das CYD
+# Abfahrtsmonitor für das CYD – Version 2
+
+> Version 2, abgeleitet von [cyd-abfahrt](https://github.com/HOAI-droid/cyd-abfahrt). Die erste Version bleibt dort unverändert.
 
 Zeigt, in wie vielen Minuten du losgehen musst, um die nächste Bahn zu erreichen. Das Design ist „Stein Anthrazit“, die Daten kommen live vom RMV (inklusive Verspätungen und Ausfällen). Das Gerät funktioniert für jede Haltestelle im RMV-Gebiet.
 
@@ -9,8 +11,8 @@ Unter https://opendata.rmv.de/site/anmeldeseite.html. Der Schlüssel kommt nach 
 
 ### 2. Firmware herunterladen
 Unter **[Releases → Aktuelle Firmware](../../releases/tag/firmware)** die passende Datei laden:
-- `cyd-abfahrt-cyd.bin` – CYD mit **einem** Micro-USB-Anschluss
-- `cyd-abfahrt-cyd2usb.bin` – CYD mit **USB-C und Micro-USB**
+- `cyd-abfahrt-v2-cyd.bin` – CYD mit **einem** Micro-USB-Anschluss
+- `cyd-abfahrt-v2-cyd2usb.bin` – CYD mit **USB-C und Micro-USB**
 
 ### 3. Im Browser flashen (Chrome, Chromium oder Edge)
 1. CYD per USB anschließen (Datenkabel!).

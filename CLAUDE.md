@@ -1,6 +1,8 @@
-# cyd-abfahrt – Abfahrtsmonitor für das CYD
+# cyd-abfahrt-v2 – Abfahrtsmonitor für das CYD (Version 2)
 
 ESP32-Firmware (PlatformIO, Arduino-Framework) für das „Cheap Yellow Display“ ESP32-2432S028R (ILI9341, 320×240, XPT2046-Touch).
+
+Version 2, abgeleitet von HOAI-droid/cyd-abfahrt (Version 1 bleibt dort unverändert). Firmware-Dateien heißen `cyd-abfahrt-v2-*.bin`.
 Zeigt, in wie vielen Minuten man losgehen muss, um die nächste Bahn an einer RMV-Haltestelle zu erreichen.
 
 ## Aufbau
