@@ -21,7 +21,8 @@ def run(street, hnr):
     r = s.post(URL, data={"mm_ses": ses(r.text), "mm_aus_ort.x": 0, "mm_aus_ort.y": 0}, headers=H, timeout=30)
     r = s.post(URL, data={"mm_ses": ses(r.text), "xxx": 1, "mm_frm_str_name": street, "mm_aus_str_txt_submit": "suchen"}, headers=H, timeout=30)
     if 'name="mm_frm_str_sel"' in r.text:
-        print("  Strassenauswahl erscheint noch einmal")
+        sel = re.search(r'name="mm_frm_str_sel".*?</select>', r.text, re.S).group(0)
+        print("  Strassenauswahl erscheint noch einmal:", re.findall(r'<option[^>]*value="([^"]*)"[^>]*>(.*?)</option>', sel, re.S)[:10])
         r = s.post(URL, data={"mm_ses": ses(r.text), "xxx": 1, "mm_frm_str_sel": street, "mm_aus_str_sel_submit": "weiter"}, headers=H, timeout=30)
     if 'name="mm_frm_hnr_sel"' in r.text:
         sel = re.search(r'name="mm_frm_hnr_sel".*?</select>', r.text, re.S).group(0)
@@ -45,7 +46,16 @@ def run(street, hnr):
 
 
 if __name__ == "__main__":
-    for st, hn in [("Frankfurter Landstraße", 1), ("Messeler Straße", 10)]:
+    # Beispiele aus der Strassenliste mit abweichendem Wert
+    s0 = requests.Session()
+    r = s0.get(URL, headers=H, timeout=30)
+    r = s0.post(URL, data={"mm_ses": ses(r.text), "mm_aus_ort.x": 0, "mm_aus_ort.y": 0}, headers=H, timeout=30)
+    r = s0.post(URL, data={"mm_ses": ses(r.text), "xxx": 1, "mm_frm_str_name": "", "mm_aus_str_txt_submit": "suchen"}, headers=H, timeout=30)
+    opts = re.findall(r'<option[^>]*value="([^"]*)"[^>]*>(.*?)</option>', r.text, re.S)
+    diff = [(v, t.strip()) for v, t in opts if v and v != t.strip()]
+    print("Optionen:", len(opts), "davon mit abweichendem Wert:", len(diff), diff[:8])
+    print("Frankfurter:", [(v, t.strip()) for v, t in opts if "Frankfurter" in t])
+    for st, hn in [("Frankfurter Landstraße", 1)]:
         print("Strasse:", st)
         try:
             run(st, hn)
