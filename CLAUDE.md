@@ -10,6 +10,7 @@ Zeigt, in wie vielen Minuten man losgehen muss, um die nächste Bahn an einer RM
 - `include/config.h`: Grundwerte (Intervalle, Rot-Grenze, Zeitzone/NTP, Touch-Kalibrierung). Keine Zugangsdaten.
 - `include/portal_html.h`: Einrichtungsseite (Captive Portal), Stadt → Haltestelle-Auswahl im Browser
 - `include/stops_data.h`: gzip-komprimierte RMV-Haltestellenliste, erzeugt mit `tools/make_stops.py` – nicht von Hand ändern
+- `include/streets_data.h`: Straßenliste EAD Darmstadt (Müllmax); im Repo leer, wird im GitHub-Build mit `tools/make_streets.py` erzeugt
 - `tools/rmv_test.py`: RMV-API testen
 
 ## Wichtige Entscheidungen
@@ -19,6 +20,10 @@ Zeigt, in wie vielen Minuten man losgehen muss, um die nächste Bahn an einer RM
 - Abfrageintervall adaptiv: 30 s (Bahn < 15 min), 60 s, nachts 600 s; Countdown lokal jede Sekunde
 - Zeit per NTP (PTB + pool), TZ `CET-1CEST,M3.5.0,M10.5.0/3`
 - Displaytexte nur ASCII (eingebaute Schriften ohne Umlaute)
+- Seiten per Wischen: 1 Abfahrt, 2 Wetter (Tafel 07/10/13/16/19/22 Uhr), 3 Tagesblatt (Datum, 2 nächste Mülltermine, Feiertag, Ferien Hessen); nach 30 s zurück zu Seite 1
+- Nachtmodus 21:30–06:30: Palette `PAL_NIGHT` (invertiert + abgedunkelt, Tafel bleibt dunkel); Farben über `COL_*`-Makros auf die aktive Palette `P`
+- Datenquellen: Open-Meteo (Wetter), Bright Sky (DWD-Warnungen ab „moderate“), OpenHolidays (DE-HE), Müllmax (EAD, iCal; alle 4 Wochen, max. 1 Versuch/Tag, Knopf „Muell laden“ im Menü)
+- Tonne neben der Uhr auf Seite 1: Vorabend ab 17:00 bis Abholtag 09:00; RMV-Meldungen aus `departureBoard` (Messages) in der Statuszeile, Tippen zeigt Text
 - Nutzer: Haltestelle Darmstadt-Arheilgen Im Fiedlersee (3024329) → Richtung Willy-Brandt-Platz (3024747), Linien 1 und 6, Gehzeit 6 min
 
 ## Bauen
