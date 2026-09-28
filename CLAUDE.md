@@ -20,4 +20,5 @@ Zeigt, in wie vielen Minuten man losgehen muss, um die nächste Bahn an einer RM
 - Nutzer: Haltestelle Darmstadt-Arheilgen Im Fiedlersee (3024329) → Richtung Willy-Brandt-Platz (3024747), Linien 1 und 6, Gehzeit 6 min
 
 ## Bauen
-`pio run` / `pio run -t upload` / `pio device monitor` (115200 Baud)
+`pio run -e cyd` (bzw. `cyd2usb` für ST7789-Variante) / `pio run -e cyd -t upload` / `pio device monitor` (115200 Baud)
+GitHub Actions (`.github/workflows/build.yml`) baut bei jedem Push beide Varianten als Einzel-.bin (Adresse 0x0) und aktualisiert das Release `firmware`.
