@@ -79,6 +79,7 @@ struct Config {
   String lines;          // z. B. "1, 6" – leer = alle
   uint8_t walk = DEFAULT_WALK_MIN;
   uint8_t light = 3;     // 1..3
+  uint8_t flip = 0;      // 1 = Bild um 180 Grad gedreht (Stecker auf der anderen Seite)
   float lat = 0, lon = 0;
   String street, streetVal, hnr;   // Muellkalender
   uint8_t bins = 15;     // Bit 0 Rest, 1 Bio, 2 Papier, 3 Gelb
@@ -115,6 +116,7 @@ static void loadConfig() {
   C.lines = prefs.getString("lines", "");
   C.walk = prefs.getUChar("walk", DEFAULT_WALK_MIN);
   C.light = prefs.getUChar("light", 3);
+  C.flip = prefs.getUChar("flip", 0);
   C.lat = prefs.getFloat("lat", 0);
   C.lon = prefs.getFloat("lon", 0);
   C.street = prefs.getString("street", "");
@@ -130,6 +132,7 @@ static void saveMenuSettings() {
   prefs.begin("abfahrt", false);
   prefs.putUChar("walk", C.walk);
   prefs.putUChar("light", C.light);
+  prefs.putUChar("flip", C.flip);
   prefs.end();
 }
 
@@ -1873,6 +1876,7 @@ static bool readTouch(int& x, int& y) {
   TS_Point p = ts.getPoint();
   x = constrain(map(p.x, TOUCH_X_MIN, TOUCH_X_MAX, 0, 320), 0, 319);
   y = constrain(map(p.y, TOUCH_Y_MIN, TOUCH_Y_MAX, 0, 240), 0, 239);
+  if (C.flip) { x = 319 - x; y = 239 - y; }   // Bild gedreht -> Beruehrung mitdrehen
   return true;
 }
 
@@ -2078,6 +2082,7 @@ static void drawPortalScreen(bool canCancel) {
 //  Einstellungs-Menue (lange auf die Kopfzeile druecken)
 // ============================================================
 static const Btn B_DONE  = {226, 8, 84, 36};
+static const Btn B_FLIP  = {136, 8, 84, 36};
 static const Btn B_MINUS = {22, 84, 64, 52};
 static const Btn B_PLUS  = {234, 84, 64, 52};
 static const Btn B_LIGHT = {10, 160, 90, 48};
@@ -2103,9 +2108,10 @@ static void drawMuellFooter(uint16_t col) {
 static void drawSettings() {
   tft.fillScreen(COL_BG);
   tft.setTextColor(COL_FG, COL_BG);
-  tft.setFreeFont(&FreeSansBold12pt7b);
+  tft.setFreeFont(&FreeSansBold9pt7b);
   tft.setTextDatum(ML_DATUM);
   tft.drawString("Einstellungen", 14, 26);
+  drawOutlineButton(B_FLIP, "Drehen");
   drawButton(B_DONE, "Fertig", COL_FG, COL_BG);
 
   // Gehzeit
@@ -2190,6 +2196,12 @@ static void handleTouch() {
       if (hit(B_MINUS, x, y)) C.walk = max(1, C.walk - 1);
       else if (hit(B_PLUS, x, y)) C.walk = min(45, C.walk + 1);
       else if (hit(B_LIGHT, x, y)) { C.light = C.light % 3 + 1; applyBrightness(); }
+      else if (hit(B_FLIP, x, y)) {     // Bild um 180 Grad drehen
+        C.flip = !C.flip;
+        tft.setRotation(C.flip ? 3 : 1);
+        saveMenuSettings();
+        while (ts.touched()) delay(10);
+      }
       else if (hit(B_MUELL, x, y)) {
         redraw = false;
         if (!C.street.length()) { drawMuellFooter(COL_SUB); }
@@ -2267,7 +2279,8 @@ void setup() {
   digitalWrite(LED_R, HIGH); digitalWrite(LED_G, HIGH); digitalWrite(LED_B, HIGH);
 
   tft.init();
-  tft.setRotation(1);
+  loadConfig();
+  tft.setRotation(C.flip ? 3 : 1);
   tft.invertDisplay(INVERT_DISPLAY);
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   ledcAttach(TFT_BL, 5000, 8);
@@ -2281,7 +2294,6 @@ void setup() {
   ts.begin(touchSpi);
   ts.setRotation(1);
 
-  loadConfig();
   loadMuell();
   if (!configComplete()) runPortal(false);     // erster Start: Einrichtung
 
