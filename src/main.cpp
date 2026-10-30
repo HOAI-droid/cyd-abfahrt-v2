@@ -351,6 +351,7 @@ static uint32_t parseYmd(const char* s) {   // "2026-10-03" oder "20261003"
 }
 
 // ---------- HTTPS-Hilfe ---------------------------------------
+String httpErr;   // Grund des letzten JSON-Fehlers (fuer die Statuszeile)
 static int httpGetJson(const String& url, JsonDocument& doc, JsonDocument* filter, int timeout = 12000) {
   if (WiFi.status() != WL_CONNECTED) return -1;
   WiFiClientSecure client;
@@ -362,11 +363,12 @@ static int httpGetJson(const String& url, JsonDocument& doc, JsonDocument* filte
   http.addHeader("Accept", "application/json");
   int code = http.GET();
   if (code != 200) { http.end(); return code; }
+  // Verbindungsauskunft ist tief verschachtelt (Tarife, Hinweise) -> hoeheres Limit
   DeserializationError err = filter
-    ? deserializeJson(doc, http.getStream(), DeserializationOption::Filter(*filter))
-    : deserializeJson(doc, http.getStream());
+    ? deserializeJson(doc, http.getStream(), DeserializationOption::Filter(*filter), DeserializationOption::NestingLimit(40))
+    : deserializeJson(doc, http.getStream(), DeserializationOption::NestingLimit(40));
   http.end();
-  if (err) { Serial.printf("[HTTP] JSON %s: %s\n", url.c_str(), err.c_str()); return -3; }
+  if (err) { httpErr = err.c_str(); Serial.printf("[HTTP] JSON %s: %s\n", url.c_str(), err.c_str()); return -3; }
   return 200;
 }
 
@@ -461,9 +463,9 @@ static bool fetchDepartures() {
   fm["eDate"] = true;
 
   JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+  DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter), DeserializationOption::NestingLimit(40));
   http.end();
-  if (err) { Serial.printf("[RMV] JSON: %s\n", err.c_str()); lastErr = "RMV: Antwort unlesbar"; return false; }
+  if (err) { Serial.printf("[RMV] JSON: %s\n", err.c_str()); lastErr = String("RMV: Daten ") + err.c_str(); return false; }
   if (doc["errorCode"].is<const char*>()) {
     String ec = doc["errorCode"].as<const char*>();
     Serial.printf("[RMV] Fehler %s: %s\n", ec.c_str(), doc["errorText"] | "");
@@ -566,10 +568,14 @@ static bool fetchTrips() {
     o["time"] = true; o["date"] = true; o["rtTime"] = true; o["rtDate"] = true; o["cancelled"] = true;
   }
   JsonDocument doc;
-  int code = httpGetJson(url, doc, &filter, 15000);
+  int code = httpGetJson(url, doc, &filter, 20000);
   if (code != 200) {
-    Serial.printf("[RMV-Trip] HTTP %d\n", code);
-    lastErr = (code == 401 || code == 403) ? "RMV: Schluessel pruefen" : String("RMV: Fehler ") + code;
+    Serial.printf("[RMV-Trip] HTTP %d %s\n", code, httpErr.c_str());
+    if (code == 401 || code == 403) lastErr = "RMV: Schluessel pruefen";
+    else if (code == -3) lastErr = "RMV: Daten " + httpErr;
+    else if (code == -1) lastErr = "kein WLAN";
+    else if (code < 0) lastErr = String("RMV: Verbindung ") + code;
+    else lastErr = String("RMV: Fehler ") + code;
     return false;
   }
   if (doc["errorCode"].is<const char*>()) {
@@ -1458,7 +1464,7 @@ static void drawHero(const View& v) {
       if (lastErr.length()) s = lastErr;
       else if (lastOk) { char hm[6]; fmtHM(lastOk, hm); s = String("offline, Stand ") + hm; }
       else s = "warte auf Daten";
-      g.drawString(fitText(g, s, 140), ox + 296, oy + 72);
+      g.drawString(fitText(g, s, 190), ox + 296, oy + 72);
     } else if (hd && hd->worst == 1) {
       g.setTextColor(P.otext, COL_BG);
       g.drawString(String("Umstieg knapp: ") + max(0, minSlack(*hd)) + " min", ox + 296, oy + 72);
