@@ -66,7 +66,7 @@ jobs:
           BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -1)
           for env in cyd cyd2usb; do
             B=.pio/build/$env
-            esptool.py --chip esp32 merge_bin -o out/cyd-abfahrt-v2-$env.bin \
+            esptool.py --chip esp32 merge_bin -o out/cyd-abfahrt-umsteigen-$env.bin \
               --flash_mode dio --flash_freq 40m --flash_size 4MB \
               0x1000 $B/bootloader.bin 0x8000 $B/partitions.bin \
               0xe000 "$BOOT_APP0" 0x10000 $B/firmware.bin
@@ -75,18 +75,18 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cyd-abfahrt-v2-firmware
+          name: cyd-abfahrt-umsteigen-firmware
           path: out/*.bin
 
-      - name: Release "firmware" aktualisieren
+      - name: Release "firmware-umsteigen" aktualisieren
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="Fertige Firmware zum Flashen an Adresse 0x0 (siehe README, Abschnitt 'Flashen im Browser'). Stand: ${GITHUB_SHA::7}"
-          if gh release view firmware >/dev/null 2>&1; then
-            gh release edit firmware --notes "$NOTES"
+          NOTES="Testzweig umsteigen: Verbindungen mit bis zu 2 Umstiegen. Flashen an Adresse 0x0. Zurueck zu Version 2: Release firmware flashen. Stand: ${GITHUB_SHA::7}"
+          if gh release view firmware-umsteigen >/dev/null 2>&1; then
+            gh release edit firmware-umsteigen --notes "$NOTES"
           else
-            gh release create firmware --title "Aktuelle Firmware" --notes "$NOTES" --target "$GITHUB_SHA"
+            gh release create firmware-umsteigen --prerelease --title "Firmware mit Umsteigen (Testzweig)" --notes "$NOTES" --target "$GITHUB_SHA"
           fi
-          gh release upload firmware out/*.bin --clobber
+          gh release upload firmware-umsteigen out/*.bin --clobber

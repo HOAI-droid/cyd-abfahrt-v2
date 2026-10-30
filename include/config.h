@@ -25,6 +25,9 @@
 #define ACTIVE_FROM_H 5
 #define ACTIVE_TO_H   24
 
+// ---- Umsteigen (Zweig "umsteigen", nur wenn ein Ziel eingerichtet ist)
+#define MIN_TRANSFER_MIN 3             // weniger Umsteigezeit = "knapp" (orange); unter 0 = Anschluss weg (rot)
+
 // ---- Nachtmodus (invertiert + abgedunkelt), Minuten nach Mitternacht
 #define NIGHT_FROM_MIN (21 * 60 + 30)  // ab 21:30
 #define NIGHT_TO_MIN   (6 * 60 + 30)   // bis 06:30

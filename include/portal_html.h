@@ -79,8 +79,8 @@ input:disabled{background:#EEE;color:#888}
 </section>
 
 <section>
-<h2>4 · Fahrtrichtung</h2>
-<p class="hint" style="margin:0 0 10px">Eine Haltestelle, über die deine Bahn fährt. Dann werden nur Bahnen in diese Richtung gezeigt.</p>
+<h2>4 · Ziel</h2>
+<p class="hint" style="margin:0 0 10px">Die Haltestelle, zu der du willst. Das Gerät sucht Verbindungen mit bis zu zwei Umstiegen und zeigt die Anschlüsse an.</p>
 <label for="bCity">Stadt</label>
 <input id="bCity" autocomplete="off" placeholder="z.&nbsp;B. Darmstadt">
 <div class="list" id="bCityList"></div>
@@ -88,7 +88,7 @@ input:disabled{background:#EEE;color:#888}
 <input id="bStop" autocomplete="off" placeholder="erst Stadt wählen" disabled>
 <div class="list" id="bStopList"></div>
 <div class="chosen" id="bChosen"><span></span><button type="button">ändern</button></div>
-<button type="button" class="small" id="noDir">keine Richtung, alle Bahnen zeigen</button>
+<button type="button" class="small" id="noDir">kein Ziel, nur Abfahrten zeigen</button>
 </section>
 
 <section>

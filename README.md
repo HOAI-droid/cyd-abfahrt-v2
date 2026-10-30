@@ -1,5 +1,7 @@
 # Abfahrtsmonitor für das CYD – Version 2
 
+> **Zweig `umsteigen` (Test):** Statt einer Fahrtrichtung wird ein **Ziel** eingerichtet. Das Gerät sucht Verbindungen mit bis zu zwei Umstiegen (RMV `/hapi/trip`) und zeigt die Anschlüsse als Kette „› S3 20:06 › U4 20:21“. Weniger als 3 Minuten Umsteigezeit: orange („Umstieg knapp“); Anschluss nicht mehr erreichbar: rot, die große Zahl springt auf die nächste machbare Verbindung. Firmware: Release **[firmware-umsteigen](../../releases/tag/firmware-umsteigen)**. Zurück zu Version 2: das Release [firmware](../../releases/tag/firmware) flashen.
+
 > Version 2, abgeleitet von [cyd-abfahrt](https://github.com/HOAI-droid/cyd-abfahrt). Die erste Version bleibt dort unverändert.
 
 Zeigt, in wie vielen Minuten du losgehen musst, um die nächste Bahn zu erreichen. Das Design ist „Stein Anthrazit“, die Daten kommen live vom RMV (inklusive Verspätungen, Ausfällen und Störungsmeldungen). Das Gerät funktioniert für jede Haltestelle im RMV-Gebiet.

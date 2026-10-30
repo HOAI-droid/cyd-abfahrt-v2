@@ -137,11 +137,22 @@ static bool configComplete() { return C.ssid.length() && C.key.length() && C.sto
 
 // ---------- Abfahrten ----------------------------------------
 static const int MAX_DEPS = 20;
+// Umstieg einer Verbindung: Anschlusslinie + Abfahrt (mit Echtzeit) + Zustand
+struct Hop {
+  char    line[6];
+  time_t  dep;        // Abfahrt des Anschlusses (Echtzeit, sonst Plan)
+  uint8_t st;         // 0 ok, 1 knapp, 2 weg
+  int16_t slack;      // Umsteigezeit in Minuten
+};
 struct Dep {
   char   line[6];
   time_t plan;        // Fahrplanzeit
   time_t rt;          // Echtzeit (0 = keine)
   bool   cancelled;
+  uint8_t hops;       // Anzahl Umstiege (0 = direkte Bahn)
+  Hop    hop[2];
+  uint8_t worst;      // schlechtester Umstieg: 0 ok, 1 knapp, 2 weg
+  time_t arr;         // Ankunft am Ziel (0 = unbekannt)
 };
 Dep deps[MAX_DEPS];
 int depCount = 0;
@@ -458,6 +469,7 @@ static bool fetchDepartures() {
   }
 
   Dep tmp[MAX_DEPS]; int n = 0;
+  memset(tmp, 0, sizeof(tmp));
   String mHead, mText, mLines, mUntil;
   bool coordsTaken = false;
   for (JsonObject d : doc["Departure"].as<JsonArray>()) {
@@ -510,6 +522,127 @@ static bool fetchDepartures() {
   lastErr = "";
   return true;
 }
+
+// ---------- RMV-Verbindungen mit Umsteigen (Ziel gesetzt) -----------
+static time_t legTime(JsonObject o, bool rt) {
+  const char* date = o["date"];
+  if (rt) {
+    const char* t = o["rtTime"];
+    if (!t) return 0;
+    return parseLocal(o["rtDate"] | date, t);
+  }
+  return parseLocal(date, o["time"]);
+}
+
+static bool fetchTrips() {
+  if (WiFi.status() != WL_CONNECTED) { lastErr = "kein WLAN"; return false; }
+  time_t start = time(nullptr) + (time_t)C.walk * 60;
+  struct tm lt; localtime_r(&start, &lt);
+  char dt[40];
+  snprintf(dt, sizeof(dt), "&date=%04d-%02d-%02d&time=%02d:%02d", lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday, lt.tm_hour, lt.tm_min);
+  String url = "https://www.rmv.de/hapi/trip?format=json&maxChange=2&numF=6&numB=0&passlist=0&poly=0";
+  url += "&accessId=" + urlEncode(C.key);
+  url += "&originId=" + urlEncode(C.stopId);
+  url += "&destId=" + urlEncode(C.dirId);
+  url += dt;
+
+  JsonDocument filter;
+  filter["errorCode"] = true;
+  filter["errorText"] = true;
+  JsonObject ft = filter["Trip"].add<JsonObject>();
+  JsonObject fl = ft["LegList"]["Leg"].add<JsonObject>();
+  fl["type"] = true;
+  fl["name"] = true;
+  fl["cancelled"] = true;
+  fl["reachable"] = true;
+  fl["Product"] = true;
+  fl["ProductAtStop"]["line"] = true;
+  fl["ProductAtStop"]["displayNumber"] = true;
+  for (const char* k : {"Origin", "Destination"}) {
+    JsonObject o = fl[k].to<JsonObject>();
+    o["time"] = true; o["date"] = true; o["rtTime"] = true; o["rtDate"] = true; o["cancelled"] = true;
+  }
+  JsonDocument doc;
+  int code = httpGetJson(url, doc, &filter, 15000);
+  if (code != 200) {
+    Serial.printf("[RMV-Trip] HTTP %d\n", code);
+    lastErr = (code == 401 || code == 403) ? "RMV: Schluessel pruefen" : String("RMV: Fehler ") + code;
+    return false;
+  }
+  if (doc["errorCode"].is<const char*>()) {
+    String ec = doc["errorCode"].as<const char*>();
+    Serial.printf("[RMV-Trip] Fehler %s: %s\n", ec.c_str(), doc["errorText"] | "");
+    lastErr = ec.startsWith("API_AUTH") ? "RMV: Schluessel pruefen" : "RMV: " + ec;
+    return false;
+  }
+
+  Dep tmp[MAX_DEPS]; int n = 0;
+  memset(tmp, 0, sizeof(tmp));
+  for (JsonObject tr : doc["Trip"].as<JsonArray>()) {
+    if (n >= MAX_DEPS) break;
+    Dep& x = tmp[n];
+    memset(&x, 0, sizeof(Dep));
+    int jn = 0;                 // Anzahl Fahrten (Linien)
+    bool tooMany = false;
+    time_t prevArr = 0;         // Ankunft der vorherigen Fahrt (Echtzeit, sonst Plan)
+    long walkSecs = 0;          // Fussweg zwischen zwei Fahrten
+    for (JsonObject lg : tr["LegList"]["Leg"].as<JsonArray>()) {
+      String type = lg["type"] | "";
+      JsonObject o = lg["Origin"], d = lg["Destination"];
+      if (type != "JNY") {      // Fussweg / Umstieg: Dauer merken
+        time_t a = legTime(o, false), b = legTime(d, false);
+        if (jn > 0 && a && b > a) walkSecs += (long)(b - a);
+        continue;
+      }
+      if (jn >= 3) { tooMany = true; break; }
+      String line = extractLine(lg);
+      time_t dep = legTime(o, false), depRt = legTime(o, true);
+      time_t arr = legTime(d, false), arrRt = legTime(d, true);
+      JsonVariant rc = lg["reachable"];
+      bool canc = (lg["cancelled"] | false) || (o["cancelled"] | false) || (d["cancelled"] | false);
+      if (jn == 0) {
+        strlcpy(x.line, line.c_str(), sizeof(x.line));
+        x.plan = dep; x.rt = depRt; x.cancelled = canc;
+      } else {
+        Hop& h = x.hop[jn - 1];
+        strlcpy(h.line, line.c_str(), sizeof(h.line));
+        h.dep = depRt ? depRt : dep;
+        long slack = (long)(h.dep - prevArr) - walkSecs;
+        h.slack = (int16_t)(slack / 60);
+        if (canc || slack < 0 || (rc.is<bool>() && !rc.as<bool>())) h.st = 2;
+        else if (slack < (long)MIN_TRANSFER_MIN * 60) h.st = 1;
+        if (h.st > x.worst) x.worst = h.st;
+        x.hops = jn;
+      }
+      prevArr = arrRt ? arrRt : arr;
+      walkSecs = 0;
+      jn++;
+    }
+    if (tooMany || jn == 0 || !x.plan) continue;
+    x.arr = prevArr;
+    // doppelte Verbindungen (gleiche erste Fahrt + gleiche Anschluesse) ueberspringen
+    bool dup = false;
+    for (int i = 0; i < n && !dup; i++)
+      dup = tmp[i].plan == x.plan && !strcmp(tmp[i].line, x.line) && tmp[i].hops == x.hops &&
+            (x.hops == 0 || (tmp[i].hop[0].dep == x.hop[0].dep && !strcmp(tmp[i].hop[0].line, x.hop[0].line)));
+    if (dup) continue;
+    Serial.printf("[RMV-Trip] %s %ld +%d Umstiege, schlechtester %d\n", x.line, (long)x.plan, x.hops, x.worst);
+    n++;
+  }
+  for (int i = 1; i < n; i++) {
+    Dep k = tmp[i]; int j = i - 1;
+    while (j >= 0 && eff(tmp[j]) > eff(k)) { tmp[j + 1] = tmp[j]; j--; }
+    tmp[j + 1] = k;
+  }
+  memcpy(deps, tmp, sizeof(Dep) * n);
+  depCount = n;
+  msgHead = ""; msgText = ""; msgLines = ""; msgUntil = "";
+  lastErr = "";
+  return true;
+}
+
+static bool tripMode() { return C.dirId.length() > 0; }
+static bool fetchBoard() { return tripMode() ? fetchTrips() : fetchDepartures(); }
 
 // Fallback, falls die Abfahrtstafel keine Koordinaten liefert
 static void fetchStopCoords() {
@@ -987,7 +1120,7 @@ static View computeView() {
     long secs = (long)(eff(d) - walk - now);
     if (secs < -30) continue;                 // nicht mehr erreichbar
     if (v.hero < 0) {
-      if (d.cancelled) { if (v.skipped < 0) v.skipped = i; continue; }
+      if (d.cancelled || d.worst >= 2) { if (v.skipped < 0) v.skipped = i; continue; }
       v.hero = i; v.heroSecs = secs;
     } else if (v.listCount < 3) {
       v.list[v.listCount++] = i;
@@ -1173,13 +1306,70 @@ static String msgLabel() {
   return l.length() ? w + " L" + l : w;
 }
 
+// ---------- Umstiegskette: "> S3 20:06 > U4 20:21" ----------------
+static String hopSig(const Dep& d) {
+  String s = String(d.hops) + "/" + d.worst + "/" + (long)d.arr;
+  for (int i = 0; i < d.hops; i++) s += String(",") + d.hop[i].line + (long)d.hop[i].dep + d.hop[i].st;
+  return s;
+}
+// Breite eines Bausteins (Pfeil + Linie + Zeit) mit Schrift 2
+static int hopWidth(TFT_eSPI& g, const Hop& h) {
+  g.setTextFont(2);
+  int bw = max(18, (int)g.textWidth(h.line) + 8);
+  char hm[6]; fmtHM(h.dep, hm);
+  return 9 + bw + 4 + g.textWidth(hm);
+}
+static int chainWidth(TFT_eSPI& g, const Dep& d) {
+  int w = 0;
+  for (int i = 0; i < d.hops; i++) w += hopWidth(g, d.hop[i]) + (i ? 5 : 0);
+  return w;
+}
+static void drawChain(TFT_eSPI& g, const Dep& d, int x, int cy, bool onPanel) {
+  uint16_t bg = onPanel ? COL_PANEL : COL_BG;
+  for (int i = 0; i < d.hops; i++) {
+    const Hop& h = d.hop[i];
+    uint16_t arrow = onPanel ? COL_PANEL_SUB : COL_SUB;
+    uint16_t cb = onPanel ? COL_PANEL_SUB : COL_SUB, ct = onPanel ? COL_PANEL : COL_BG;
+    uint16_t tc = onPanel ? COL_PANEL_FG : COL_FG;
+    if (h.st == 1) { cb = COL_ORANGE; ct = COL_DARK; tc = onPanel ? COL_ORANGE : P.otext; }
+    if (h.st == 2) { cb = COL_RED; ct = COL_WHITE; tc = COL_RED; }
+    // Pfeil
+    g.drawLine(x + 1, cy - 4, x + 4, cy, arrow); g.drawLine(x + 4, cy, x + 1, cy + 4, arrow);
+    g.drawLine(x + 2, cy - 4, x + 5, cy, arrow); g.drawLine(x + 5, cy, x + 2, cy + 4, arrow);
+    x += 9;
+    g.setTextFont(2);
+    int bw = max(18, (int)g.textWidth(h.line) + 8);
+    g.fillRoundRect(x, cy - 8, bw, 16, 4, cb);
+    g.setTextDatum(MC_DATUM); g.setTextColor(ct, cb);
+    g.drawString(h.line, x + bw / 2, cy + 1);
+    x += bw + 4;
+    char hm[6]; fmtHM(h.dep, hm);
+    g.setTextDatum(ML_DATUM); g.setTextColor(tc, bg);
+    int w = g.drawString(hm, x, cy + 1);
+    if (h.st == 2) g.drawFastHLine(x, cy + 1, w, tc);
+    x += w + 5;
+  }
+}
+// erster verpasster Anschluss als Text, z. B. "Anschluss S3 20:06 weg"
+static String goneText(const Dep& d) {
+  for (int i = 0; i < d.hops; i++)
+    if (d.hop[i].st == 2) { char hm[6]; fmtHM(d.hop[i].dep, hm); return String("Anschluss ") + d.hop[i].line + " " + hm + " weg"; }
+  return "Anschluss weg";
+}
+static int minSlack(const Dep& d) {
+  int m = 99;
+  for (int i = 0; i < d.hops; i++) if (d.hop[i].slack < m) m = d.hop[i].slack;
+  return m;
+}
+
 static void drawHero(const View& v) {
   time_t now = time(nullptr);
   bool stale = lastOk == 0 || (now - lastOk) > 180;
   int mins = v.hero < 0 ? -1 : (v.heroSecs <= 0 ? 0 : (int)(v.heroSecs / 60));
 
   String sig = String(mins) + "|" + v.hero + "|" + v.skipped + "|" + stale + "|" + depCount + "|" + lastErr + "|" + msgHead + "|" + nightMode;
-  if (v.hero >= 0) sig += "|" + String((long)deps[v.hero].rt);
+  if (v.hero >= 0) sig += "|" + String((long)deps[v.hero].rt) + hopSig(deps[v.hero]);
+  if (v.skipped >= 0) sig += "|" + hopSig(deps[v.skipped]);
   if (sig == shownHero) return;
   shownHero = sig;
 
@@ -1237,7 +1427,10 @@ static void drawHero(const View& v) {
       g.setTextFont(2);
       g.setTextDatum(TR_DATUM);
       g.setTextColor(COL_SUB, COL_BG);
-      if (d.rt) {
+      if (d.hops > 0) {
+        // Umstiege unter der Kapsel, rechtsbuendig
+        drawChain(g, d, ox + 296 - chainWidth(g, d), oy + 60, false);
+      } else if (d.rt) {
         long delay = (long)(d.rt - d.plan) / 60;
         if (delay > 0) g.drawString(String("+") + delay + " min", ox + 296, oy + 52);
         else if (delay < 0) g.drawString(String(delay) + " min", ox + 296, oy + 52);
@@ -1249,10 +1442,13 @@ static void drawHero(const View& v) {
     // Statuszeile: Ausfall / Fehler / offline / Stoerung / keine Bahn
     g.setTextFont(2);
     g.setTextDatum(TR_DATUM);
+    const Dep* hd = v.hero >= 0 ? &deps[v.hero] : nullptr;
     if (v.skipped >= 0) {
-      char hm[6]; fmtHM(deps[v.skipped].plan, hm);
+      const Dep& sk = deps[v.skipped];
+      char hm[6]; fmtHM(sk.plan, hm);
       g.setTextColor(COL_RED, COL_BG);
-      g.drawString(String("Ausfall ") + deps[v.skipped].line + " " + hm, ox + 296, oy + 72);
+      String s = sk.cancelled ? String("Ausfall ") + sk.line + " " + hm : goneText(sk);
+      g.drawString(fitText(g, s, 180), ox + 296, oy + 72);
     } else if (stale) {
       g.setTextColor(COL_SUB, COL_BG);
       String s;
@@ -1260,6 +1456,20 @@ static void drawHero(const View& v) {
       else if (lastOk) { char hm[6]; fmtHM(lastOk, hm); s = String("offline, Stand ") + hm; }
       else s = "warte auf Daten";
       g.drawString(fitText(g, s, 140), ox + 296, oy + 72);
+    } else if (hd && hd->worst == 1) {
+      g.setTextColor(P.otext, COL_BG);
+      g.drawString(String("Umstieg knapp: ") + max(0, minSlack(*hd)) + " min", ox + 296, oy + 72);
+    } else if (hd && tripMode()) {
+      // Verspaetung + Ankunft am Ziel
+      String s;
+      if (!hd->rt) s = "Fahrplan";
+      else {
+        long delay = (long)(hd->rt - hd->plan) / 60;
+        s = delay > 0 ? String("+") + delay + " min" : delay < 0 ? String(delay) + " min" : String("puenktlich");
+      }
+      if (hd->arr) { char hm[6]; fmtHM(hd->arr, hm); s += String(", an ") + hm; }
+      g.setTextColor(COL_SUB, COL_BG);
+      g.drawString(s, ox + 296, oy + 72);
     } else if (msgHead.length()) {
       String s = fitText(g, msgLabel(), 120);
       int w = g.textWidth(s);
@@ -1280,7 +1490,7 @@ static void drawPanel(const View& v) {
   for (int k = 0; k < v.listCount; k++) {
     const Dep& d = deps[v.list[k]];
     long m = (long)(eff(d) - walk - now) / 60;
-    sig += String(d.line) + (long)d.plan + "/" + (long)d.rt + d.cancelled + ":" + m + ";";
+    sig += String(d.line) + (long)d.plan + "/" + (long)d.rt + d.cancelled + ":" + m + hopSig(d) + ";";
   }
   if (sig == shownPanel) return;
   shownPanel = sig;
@@ -1314,19 +1524,29 @@ static void drawPanel(const View& v) {
       if (d.cancelled) g.drawFastHLine(tx, cy, w, txt);
 
       g.setTextFont(2);
+      int cx = tx + w + 4;
       if (!d.cancelled && d.rt && d.rt != d.plan) {
         long delay = (long)(d.rt - d.plan) / 60;
         g.setTextColor(COL_PANEL_SUB, COL_PANEL);
-        g.drawString(String(delay > 0 ? "+" : "") + delay, tx + w + 4, cy + 1);
+        cx += g.drawString(String(delay > 0 ? "+" : "") + delay, cx, cy + 1) + 3;
       }
+      if (d.hops > 0) { drawChain(g, d, cx, cy, true); cx += chainWidth(g, d); }
+      g.setTextFont(2);
       g.setTextDatum(MR_DATUM);
       g.setTextColor(COL_PANEL_SUB, COL_PANEL);
+      int room = ox + 290 - cx - 6;          // Platz rechts neben der Kette
       if (d.cancelled) {
+        g.setTextColor(COL_RED, COL_PANEL);
         g.drawString("Ausfall", ox + 290, cy + 1);
+      } else if (d.worst >= 2) {
+        g.setTextColor(COL_RED, COL_PANEL);
+        g.drawString(g.textWidth("Anschluss weg") <= room ? "Anschluss weg" : "weg", ox + 290, cy + 1);
       } else {
         long m = (long)(eff(d) - walk - now) / 60;
-        if (m <= 0) g.drawString("jetzt los", ox + 290, cy + 1);
-        else g.drawString(String("los in ") + m + " min", ox + 290, cy + 1);
+        String a = tripMode() ? String("in ") + m + " min" : String("los in ") + m + " min";
+        if (m <= 0) a = "jetzt los";
+        else if (g.textWidth(a) > room) a = String(m) + " min";
+        g.drawString(a, ox + 290, cy + 1);
       }
     }
   });
@@ -1345,7 +1565,7 @@ static void resetShown() { shownHeader = ""; shownHero = ""; shownPanel = ""; sh
 static void drawMain(bool force = false) {
   if (force) { resetShown(); tft.fillScreen(COL_BG); }
   View v = computeView();
-  String sub = C.dirId.length() ? "Richtung " + C.dirName : String("alle Richtungen");
+  String sub = tripMode() ? "nach " + C.dirName : String("alle Richtungen");
   drawHeader(C.stopName, sub, reminderBin());
   drawHero(v);
   drawPanel(v);
@@ -2071,7 +2291,7 @@ void setup() {
   startTime();
   applyTheme();
   showMessage("Hole Abfahrten", C.stopName);
-  bool ok = fetchDepartures();
+  bool ok = fetchBoard();
   if (ok) lastOk = time(nullptr);
   nextFetchMs = millis() + (ok ? INTERVAL_NORMAL_S : errBackoff) * 1000UL;
   fetchStopCoords();
@@ -2095,7 +2315,7 @@ void loop() {
   bool changed = false;
   if ((int32_t)(ms - nextFetchMs) >= 0) {
     if (WiFi.status() != WL_CONNECTED) WiFi.reconnect();
-    bool ok = fetchDepartures();
+    bool ok = fetchBoard();
     uint32_t wait;
     if (ok) {
       lastOk = time(nullptr); errBackoff = 30;

@@ -13,6 +13,11 @@ Zeigt, in wie vielen Minuten man losgehen muss, um die nächste Bahn an einer RM
 - `include/streets_data.h`: Straßenliste EAD Darmstadt (Müllmax); im Repo leer, wird im GitHub-Build mit `tools/make_streets.py` erzeugt
 - `tools/rmv_test.py`: RMV-API testen
 
+## Zweig `umsteigen`
+- Ist ein Ziel (`dir`) eingerichtet, kommen die Daten aus `/hapi/trip` (maxChange=2, numF=6, Zeit = jetzt + Gehzeit) statt aus `departureBoard`
+- `Dep` hat `hops`/`hop[2]`/`worst`/`arr`; Umstieg knapp < `MIN_TRANSFER_MIN` (3 min), weg bei negativer Umsteigezeit, Ausfall oder `reachable=false`
+- Verbindungen mit verpasstem Anschluss zählen nicht für den Countdown (wie Ausfall); Release `firmware-umsteigen` (Vorabversion), Dateien `cyd-abfahrt-umsteigen-*.bin`
+
 ## Wichtige Entscheidungen
 - Design „Stein Anthrazit“: Hintergrund #CFCBBF, Text #111111, Tafel #3A3833; Minutenzahl rot (#C62D1F) ab ≤ 3 min
 - WLAN, RMV-Schlüssel, Haltestellen-IDs (HAFAS_ID), Linien und Gehzeit werden per Einrichtungs-WLAN gesetzt und in NVS (Preferences, Namespace `abfahrt`) gespeichert
