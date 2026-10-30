@@ -629,12 +629,18 @@ static bool fetchTrips() {
     }
     if (tooMany || jn == 0 || !x.plan) continue;
     x.arr = prevArr;
-    // doppelte Verbindungen (gleiche erste Fahrt + gleiche Anschluesse) ueberspringen
-    bool dup = false;
-    for (int i = 0; i < n && !dup; i++)
-      dup = tmp[i].plan == x.plan && !strcmp(tmp[i].line, x.line) && tmp[i].hops == x.hops &&
-            (x.hops == 0 || (tmp[i].hop[0].dep == x.hop[0].dep && !strcmp(tmp[i].hop[0].line, x.hop[0].line)));
-    if (dup) continue;
+    // gleiche erste Bahn schon vorhanden: nur die bessere Verbindung behalten
+    // (frueher am Ziel, bei Gleichstand weniger Umstiege, verpasste Anschluesse zuletzt)
+    int same = -1;
+    for (int i = 0; i < n; i++)
+      if (tmp[i].plan == x.plan && !strcmp(tmp[i].line, x.line)) { same = i; break; }
+    if (same >= 0) {
+      Dep& o = tmp[same];
+      bool better = (x.worst >= 2) != (o.worst >= 2) ? o.worst >= 2
+                  : x.arr != o.arr ? x.arr < o.arr : x.hops < o.hops;
+      if (better) o = x;
+      continue;
+    }
     Serial.printf("[RMV-Trip] %s %ld +%d Umstiege, schlechtester %d\n", x.line, (long)x.plan, x.hops, x.worst);
     n++;
   }
@@ -1322,18 +1328,20 @@ static String hopSig(const Dep& d) {
   return s;
 }
 // Breite eines Bausteins (Pfeil + Linie + Zeit) mit Schrift 2
-static int hopWidth(TFT_eSPI& g, const Hop& h) {
+// compact (Tafel): schmalere Bausteine, damit rechts die Minuten Platz haben
+static int hopWidth(TFT_eSPI& g, const Hop& h, bool compact) {
   g.setTextFont(2);
-  int bw = max(18, (int)g.textWidth(h.line) + 8);
+  int bw = compact ? max(14, (int)g.textWidth(h.line) + 4) : max(18, (int)g.textWidth(h.line) + 8);
   char hm[6]; fmtHM(h.dep, hm);
-  return 9 + bw + 4 + g.textWidth(hm);
+  return (compact ? 7 : 9) + bw + (compact ? 2 : 4) + g.textWidth(hm);
 }
-static int chainWidth(TFT_eSPI& g, const Dep& d) {
+static int chainWidth(TFT_eSPI& g, const Dep& d, bool compact) {
   int w = 0;
-  for (int i = 0; i < d.hops; i++) w += hopWidth(g, d.hop[i]) + (i ? 5 : 0);
+  for (int i = 0; i < d.hops; i++) w += hopWidth(g, d.hop[i], compact) + (i ? (compact ? 3 : 5) : 0);
   return w;
 }
 static void drawChain(TFT_eSPI& g, const Dep& d, int x, int cy, bool onPanel) {
+  bool compact = onPanel;
   uint16_t bg = onPanel ? COL_PANEL : COL_BG;
   for (int i = 0; i < d.hops; i++) {
     const Hop& h = d.hop[i];
@@ -1345,18 +1353,18 @@ static void drawChain(TFT_eSPI& g, const Dep& d, int x, int cy, bool onPanel) {
     // Pfeil
     g.drawLine(x + 1, cy - 4, x + 4, cy, arrow); g.drawLine(x + 4, cy, x + 1, cy + 4, arrow);
     g.drawLine(x + 2, cy - 4, x + 5, cy, arrow); g.drawLine(x + 5, cy, x + 2, cy + 4, arrow);
-    x += 9;
+    x += compact ? 7 : 9;
     g.setTextFont(2);
-    int bw = max(18, (int)g.textWidth(h.line) + 8);
+    int bw = compact ? max(14, (int)g.textWidth(h.line) + 4) : max(18, (int)g.textWidth(h.line) + 8);
     g.fillRoundRect(x, cy - 8, bw, 16, 4, cb);
     g.setTextDatum(MC_DATUM); g.setTextColor(ct, cb);
     g.drawString(h.line, x + bw / 2, cy + 1);
-    x += bw + 4;
+    x += bw + (compact ? 2 : 4);
     char hm[6]; fmtHM(h.dep, hm);
     g.setTextDatum(ML_DATUM); g.setTextColor(tc, bg);
     int w = g.drawString(hm, x, cy + 1);
     if (h.st == 2) g.drawFastHLine(x, cy + 1, w, tc);
-    x += w + 5;
+    x += w + (compact ? 3 : 5);
   }
 }
 // erster verpasster Anschluss als Text, z. B. "Anschluss S3 20:06 weg"
@@ -1438,7 +1446,7 @@ static void drawHero(const View& v) {
       g.setTextColor(COL_SUB, COL_BG);
       if (d.hops > 0) {
         // Umstiege unter der Kapsel, rechtsbuendig
-        drawChain(g, d, ox + 296 - chainWidth(g, d), oy + 60, false);
+        drawChain(g, d, ox + 296 - chainWidth(g, d, false), oy + 60, false);
       } else if (d.rt) {
         long delay = (long)(d.rt - d.plan) / 60;
         if (delay > 0) g.drawString(String("+") + delay + " min", ox + 296, oy + 52);
@@ -1539,23 +1547,27 @@ static void drawPanel(const View& v) {
         g.setTextColor(COL_PANEL_SUB, COL_PANEL);
         cx += g.drawString(String(delay > 0 ? "+" : "") + delay, cx, cy + 1) + 3;
       }
-      if (d.hops > 0) { drawChain(g, d, cx, cy, true); cx += chainWidth(g, d); }
+      if (d.hops > 0) { drawChain(g, d, cx, cy, true); cx += chainWidth(g, d, true); }
       g.setTextFont(2);
       g.setTextDatum(MR_DATUM);
       g.setTextColor(COL_PANEL_SUB, COL_PANEL);
-      int room = ox + 290 - cx - 6;          // Platz rechts neben der Kette
+      int room = ox + 290 - cx - 4;          // Platz rechts neben der Kette
       if (d.cancelled) {
         g.setTextColor(COL_RED, COL_PANEL);
         g.drawString("Ausfall", ox + 290, cy + 1);
       } else if (d.worst >= 2) {
         g.setTextColor(COL_RED, COL_PANEL);
-        g.drawString(g.textWidth("Anschluss weg") <= room ? "Anschluss weg" : "weg", ox + 290, cy + 1);
+        if (g.textWidth("weg") <= room)
+          g.drawString(g.textWidth("Anschluss weg") <= room ? "Anschluss weg" : "weg", ox + 290, cy + 1);
       } else {
         long m = (long)(eff(d) - walk - now) / 60;
         String a = tripMode() ? String("in ") + m + " min" : String("los in ") + m + " min";
         if (m <= 0) a = "jetzt los";
-        else if (g.textWidth(a) > room) a = String(m) + " min";
-        g.drawString(a, ox + 290, cy + 1);
+        else if (g.textWidth(a) > room) {
+          a = String(m) + " min";
+          if (g.textWidth(a) > room) a = String(m) + "'";
+        }
+        if (g.textWidth(a) <= room + 2) g.drawString(a, ox + 290, cy + 1);
       }
     }
   });
